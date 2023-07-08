@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     error::Error,
     fmt::Display,
-    io::Read,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
     str::FromStr,
 };
@@ -12,6 +12,15 @@ use std::{
 enum Method {
     Get,
     Post,
+}
+
+impl Display for Method {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Method::Get => "GET",
+            Method::Post => "POST"
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -42,11 +51,11 @@ struct Request {
 }
 
 impl Request {
-    pub fn from_stream(stream: &TcpStream) -> Self {
+    pub fn read(stream: &TcpStream) -> Self {
         let mut stream = stream.bytes().map(|x| x.unwrap_or(0));
 
         let line = read_line(&mut stream);
-        let (method, endpoint) = line.split_once(' ').unwrap();
+        let first: Vec<&str> = line.splitn(3, ' ').collect();
         let mut headers = HashMap::new();
 
         loop {
@@ -69,19 +78,72 @@ impl Request {
             });
 
         Request {
-            method: method.parse().unwrap(),
-            endpoint: endpoint.trim().to_owned(),
+            method: first[0].parse().unwrap(),
+            endpoint: first[1].trim().to_owned(),
             headers,
             body,
         }
     }
 }
 
+struct Response {
+    status: usize,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+impl Response {
+    pub fn new<S: Into<String>>(status: usize, body: S) -> Self {
+        Self {
+            status,
+            headers: HashMap::new(),
+            body: body.into(),
+        }
+    }
+    pub fn with_header<S0: Into<String>, S1: Into<String>>(self, key: S0, val: S1) -> Self {
+        let mut headers = self.headers;
+        headers.insert(key.into(), val.into());
+        Self {
+            status: self.status,
+            headers,
+            body: self.body,
+        }
+    }
+    pub fn write(&self, s: &mut TcpStream) -> Result<(), std::io::Error> {
+        println!("{}", self);
+        s.write_all(self.to_string().as_bytes())?;
+        s.flush()
+    }
+}
+impl Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "HTTP/1.1 {}\n{}\n{}",
+            self.status,
+            self.headers
+                .iter()
+                .map(|(key, value)| format!("{key}: {value}\n"))
+                .collect::<String>(),
+            self.body
+        )
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:3000")?;
     for stream in listener.incoming() {
-        let request = Request::from_stream(&stream?);
-        dbg!(request);
+        let mut stream = stream?;
+        let request = Request::read(&stream);
+        Response::new(
+            200,
+            format!(
+                "{} from {} with body:\n{}",
+                request.method, request.endpoint, request.body.unwrap_or(String::new())
+            ),
+        )
+        .with_header("Zggff", "12")
+        .write(&mut stream)?;
     }
     Ok(())
 }
