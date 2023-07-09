@@ -6,9 +6,10 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     str::FromStr,
+    sync::{Arc, OnceLock},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Method {
     Get,
     Post,
@@ -16,10 +17,14 @@ enum Method {
 
 impl Display for Method {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Method::Get => "GET",
-            Method::Post => "POST"
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Method::Get => "GET",
+                Method::Post => "POST",
+            }
+        )
     }
 }
 
@@ -110,7 +115,6 @@ impl Response {
         }
     }
     pub fn write(&self, s: &mut TcpStream) -> Result<(), std::io::Error> {
-        println!("{}", self);
         s.write_all(self.to_string().as_bytes())?;
         s.flush()
     }
@@ -130,24 +134,51 @@ impl Display for Response {
     }
 }
 
+type HandlerKey = (Method, String);
+type Handler = Arc<dyn Fn(Request) -> Response + Send + Sync>;
+static HANDLERS: OnceLock<HashMap<HandlerKey, Handler>> = OnceLock::new();
+
+macro_rules! set_handler {
+    ($handlers: ident, $method: expr, $endpoint: literal, $handler: expr) => {
+        let handler: Handler = Arc::new($handler);
+        $handlers.insert(($method, $endpoint.to_string()), handler);
+    };
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:3000")?;
-    for stream in listener.incoming() {
-        let mut stream = stream?;
-        let request = Request::read(&stream);
+    let mut handlers = HashMap::new();
+
+    set_handler!(handlers, Method::Get, "/", |request: Request| {
         Response::new(
             200,
             format!(
                 "{} from {} with body:\n{}",
-                request.method, request.endpoint, request.body.unwrap_or(String::new())
+                request.method,
+                request.endpoint,
+                request.body.unwrap_or(String::new())
             ),
         )
         .with_header("Zggff", "12")
-        .write(&mut stream)?;
+    });
+
+    if HANDLERS.set(handlers).is_err() {
+        panic!("failed to initialise handlers")
+    }
+
+    for stream in listener.incoming() {
+        let mut stream = stream?;
+        let request = Request::read(&stream);
+        if let Some(handler) = HANDLERS
+            .get()
+            .and_then(|h| h.get(&(request.method, request.endpoint.clone())))
+        {
+            let response = handler(request);
+            response.write(&mut stream)?;
+        }
     }
     Ok(())
 }
-
 
 fn read_line<I: Iterator<Item = u8>>(i: &mut I) -> String {
     let mut s = String::new();
