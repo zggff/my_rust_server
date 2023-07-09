@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:3000")?;
     let mut handlers = HashMap::new();
 
-    set_handler!(handlers, Method::Get, "/", |request: Request| {
+    set_handler!(handlers, Method::Get, "*", |request: Request| {
         Response::new(
             200,
             format!(
@@ -160,6 +160,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             ),
         )
         .with_header("Zggff", "12")
+    });
+    set_handler!(handlers, Method::Get, "/", |_request: Request| {
+        Response::new(
+            200,
+            format!(
+                "Hello There",
+            ),
+        )
     });
 
     if HANDLERS.set(handlers).is_err() {
@@ -174,6 +182,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             .and_then(|h| h.get(&(request.method, request.endpoint.clone())))
         {
             let response = handler(request);
+            response.write(&mut stream)?;
+        } else if let Some(handler) = HANDLERS
+            .get()
+            .and_then(|h| h.get(&(request.method, "*".to_string()))) {
+            let response = handler(request);
+            response.write(&mut stream)?;
+        } else {
+            let response = Response::new(404, "Not Found".to_string());
             response.write(&mut stream)?;
         }
     }
