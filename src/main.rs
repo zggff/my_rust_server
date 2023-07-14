@@ -1,11 +1,5 @@
-#![feature(trait_alias)]
-
-use crate::http::{Method, Request, Response};
-use crate::server::Server;
+use server::{Server, Method, Request, Response};
 use std::error::Error;
-
-mod http;
-mod server;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut server = Server::new("127.0.0.1:3000");
