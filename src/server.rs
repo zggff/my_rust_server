@@ -1,3 +1,4 @@
+use crate::pool::ThreadPool;
 use std::{
     collections::HashMap,
     error::Error,
@@ -37,8 +38,12 @@ impl Server {
             panic!("failed to initialise handlers")
         }
 
+        let pool = ThreadPool::new(4);
+
         for stream in self.listener.incoming().flatten() {
-            handle_stream(stream)?;
+            pool.execute(|| {
+                handle_stream(stream).unwrap();
+            });
         }
         Ok(())
     }
