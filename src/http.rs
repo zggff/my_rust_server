@@ -121,16 +121,11 @@ impl Response {
 }
 impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "HTTP/1.1 {}\n{}\n{}",
-            self.status,
-            self.headers
-                .iter()
-                .map(|(key, value)| format!("{key}: {value}\n"))
-                .collect::<String>(),
-            self.body
-        )
+        writeln!(f, "HTTP/1.1 {}", self.status)?;
+        self.headers
+            .iter()
+            .try_fold((), |_, (key, value)| writeln!(f, "{key}: {value}"))?;
+        write!(f, "\n{}", self.body)
     }
 }
 
